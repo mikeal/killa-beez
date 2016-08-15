@@ -1,0 +1,28 @@
+{
+  "name": "resilient-swarm",
+  "version": "0.1.0",
+  "description": "",
+  "main": "index.js",
+  "scripts": {
+    "start": "node memstore/server.js & beefy index.js:bundle.js --open --index test.html",
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "keywords": [],
+  "author": "Mikeal Rogers <mikeal.rogers@gmail.com> (http://www.mikealrogers.com)",
+  "license": "Apache-2.0",
+  "dependencies": {
+    "dnode": "^1.2.2",
+    "duplexify": "^3.4.5",
+    "ec-pem": "^0.6.1",
+    "lodash": "^4.15.0",
+    "multiplex": "^6.7.0",
+    "pouchdb": "^5.4.5",
+    "pouchdb-adapter-memory": "^5.4.5",
+    "pouchdb-replication-stream": "^1.2.7",
+    "simple-peer": "^6.0.5"
+  },
+  "devDependencies": {
+    "beefy": "^2.1.8",
+    "watchify": "^3.7.0"
+  }
+}

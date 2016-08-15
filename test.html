@@ -1,0 +1,27 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <meta charset="UTF-8">
+    <title>Resilient Swarm Test</title>
+    <script src="bundle.js"></script>
+
+    <script>
+      console.log("in script")
+      var node1 = new Swarm(new SignalServer('http://localhost:6688'))
+      var node2 = new Swarm(new SignalServer('http://localhost:6688'))
+      node1.once('signal', () => {
+        console.log('signal event')
+        node2.signal(node1.publicKey)
+      })
+      node1.on('peer', (peer) => {
+        console.log('new peer from peer1', peer)
+      })
+      node2.on('peer', (peer) => {
+        console.log('new peer from peer2', peer)
+      })
+    </script>
+  </head>
+  <body>
+
+  </body>
+</html>
