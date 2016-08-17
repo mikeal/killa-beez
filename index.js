@@ -1,17 +1,18 @@
 const PouchDB = require('pouchdb')
 const replicationStream = require('pouchdb-replication-stream')
 const multiplex = require('multiplex')
-const rand = () => require('crypto').randomBytes(8).toString('hex')
+const crypto = require('crypto')
+const rand = () => crypto.randomBytes(8).toString('hex')
 const dnode = require('dnode')
 const duplexify = require('duplexify')
-const crypto = require('crypto')
 const EventEmitter = require('events').EventEmitter
 const util = require('util')
 const ec_pem = require('./ec-pem')
 const SimplePeer = require('simple-peer')
 const extend = require('lodash.assign')
-const noopCallback = (err) => { if (err) console.error(err) }
 const io = require('socket.io-client')
+
+const noopCallback = (err) => { if (err) console.error(err) }
 
 PouchDB.plugin(replicationStream.plugin)
 PouchDB.plugin(require('pouchdb-adapter-memory'))
