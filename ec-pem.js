@@ -20,8 +20,6 @@ exports = module.exports = Object.assign(ec_pem, {
   loadPrivateKey, decodePrivateKey, encodePrivateKey,
   loadPublicKey, decodePublicKey, encodePublicKey })
 
-
-
 function generate(curve) {
   const ecdh = crypto.createECDH(curve)
   ecdh.generateKeys()
@@ -41,9 +39,6 @@ function decode(pem_key_string) {
     return decodePublicKey(pem_key_string)
   throw new Error("Not a valid PEM formatted EC key")
 }
-
-
-
 function loadPrivateKey(pem_key_string) {
   const key = decodePrivateKey(pem_key_string)
   const ecdh = crypto.createECDH(key.curve)
@@ -70,7 +65,7 @@ const _encode_private_key_extra = {
 function encodePrivateKey(ecdh, enc='pem') {
   const curve = asn1_objid_lookup_table[ecdh.curve]
   var obj = {version: 1,
-    private_key: ecdh.getPrivateKey(),
+    private_key: ecdh.private_key || ecdh.getPrivateKey(),
     ec_params: { type: 'curve', value: curve.value}}
 
   return ASN1_ECPrivateKey.encode(obj, enc, _encode_private_key_extra[enc])

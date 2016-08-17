@@ -8,11 +8,10 @@ const crypto = require('crypto')
 const EventEmitter = require('events').EventEmitter
 const util = require('util')
 const ec_pem = require('./ec-pem')
-const request = require('request')
 const SimplePeer = require('simple-peer')
-const _ = require('lodash')
-const noop = () => {}
+const extend = require('lodash.assign')
 const noopCallback = (err) => { if (err) console.error(err) }
+const io = require('socket.io-client')
 
 PouchDB.plugin(replicationStream.plugin)
 PouchDB.plugin(require('pouchdb-adapter-memory'))
@@ -24,26 +23,76 @@ function cypherStream (sec, stream) {
   return duplexify(encoder, stream.pipe(crypto.createDecipher('aes192', sec)))
 }
 
-function SignalServer (baseurl) {
-  this.base = baseurl
+function sign (pemPrivateKey, value) {
+  if (typeof value !== 'string') value = JSON.stringify(value)
+  var algo = 'ecdsa-with-SHA1'
+  return crypto.createSign(algo).update(value).sign(pemPrivateKey).toString('hex')
 }
-SignalServer.prototype.get = function (pub, cb) {
-  var url = `${this.base}/v1/${pub}`
-  request.get(url, {json: true}, (err, resp, obj) => {
-    if (err) return cb(err)
-    var status = resp.statusCode
-    if (status !== 200) return cb(new Error('Status Code not 200, ' + status))
-    cb(null, obj)
-  })
+function verify (value, publicKey, signature) {
+  if (!Buffer.isBuffer(publicKey)) publicKey = new Buffer(publicKey, 'hex')
+  if (typeof value !== 'string') value = JSON.stringify(value)
+  var c = 'secp521r1'
+  var pem = ec_pem({public_key: publicKey, curve: c}, c).encodePublicKey()
+  var algo = 'ecdsa-with-SHA1'
+  return crypto.createVerify(algo).update(value).verify(pem, signature)
 }
-SignalServer.prototype.put = function (pub, obj, cb) {
-  var url = `${this.base}/v1/${pub}`
-  request.put(url, {json: obj}, (err, resp, obj) => {
-    if (err) return cb(err)
-    var status = resp.statusCode
-    if (status !== 201) return cb(new Error('Status Code not 201, ' + status))
-    cb(null, obj)
+function computeSecret (fromPrivateKey, toPublicKey) {
+  let priv = crypto.createECDH('secp521r1')
+  priv.generateKeys()
+  priv.setPrivateKey(fromPrivateKey, 'hex')
+  let secret = priv.computeSecret(toPublicKey, 'hex', 'hex')
+  return secret
+}
+function encrypt (fromPrivateKey, toPublicKey, data) {
+  if (typeof data !== 'string') data = JSON.stringify(data)
+  // TODO: finish encryption
+  let secret = computeSecret(fromPrivateKey, toPublicKey)
+
+  let cipher = crypto.createCipher('aes192', secret);
+
+  var encrypted = cipher.update(data, 'utf8', 'hex')
+  encrypted += cipher.final('hex')
+  return encrypted
+}
+function decrypt (toPrivateKey, fromPublicKey, data) {
+  let secret = computeSecret(toPrivateKey, fromPublicKey)
+  let decipher = crypto.createDecipher('aes192', secret)
+  var decrypted = decipher.update(data, 'hex', 'utf8')
+  decrypted += decipher.final('utf8')
+  var ret = JSON.parse(decrypted)
+  return ret
+}
+
+function signalExchange (host, privateKey, publicKey, onOffer) {
+  var socket = io(host)
+  var c = 'secp521r1'
+  var pem = ec_pem({private_key: privateKey, curve: c}, c)
+  var pemPrivateKey = pem.encodePrivateKey()
+
+  var data = {verify: true, nonce: crypto.randomBytes().toString('hex')}
+  socket.emit('subscribe', publicKey, data, sign(pemPrivateKey, data))
+
+  socket.on('signal', data => {
+    // TODO: wrap in try/catch
+    data.offer = decrypt(privateKey, data.from, data.offer)
+    delete data.signature // This is the unencrypted signature
+    onOffer(data)
   })
+  socket.on('offer-error', (msg) => {
+    console.error('offer-error:', msg)
+  })
+  function encodeOffer (pubKey, offer) {
+    let data = {from: publicKey, to: pubKey}
+    data.offer = encrypt(privateKey, pubKey, offer)
+    data.signature = sign(pemPrivateKey, data.offer)
+    return data
+  }
+  function send (pubKey, offer) {
+    let data = encodeOffer(pubKey, offer)
+    socket.emit('signal', data)
+  }
+  // send.encodeOffer = encodeOffer
+  return send
 }
 
 function setupPeer (swarm, peer) {
@@ -57,9 +106,9 @@ function setupPeer (swarm, peer) {
       peer.emit.apply(peer, arguments)
     }
 
-    var secret = swarm.mykey.computeSecret(publicKey)
+    var secret = swarm.mykey.computeSecret(peer.publicKey)
     stream = cypherStream(secret, stream)
-    stream.publicKey = publicKey
+    stream.publicKey = peer.publicKey
     switch (type) {
       case 'db':
         swarm.db.dump(stream)
@@ -91,45 +140,61 @@ function setupPeer (swarm, peer) {
   peer.plex = plex
 }
 
-function Swarm (signaler, opts) {
+function Swarm (signalServer, opts) {
   // Crypto Setup
   this.mykey = crypto.createECDH('secp521r1')
   this.mykey.generateKeys()
   this.publicKey = this.mykey.getPublicKey().toString('hex')
+  this.privateKey = this.mykey.getPrivateKey().toString('hex')
   this.pem = ec_pem(this.mykey, 'secp521r1')
   this.pemPrivateKey = this.pem.encodePrivateKey()
 
   this.db = new PouchDB(rand(), {adapter: 'memory'})
   this.opts = opts | {}
-  this.signaler = signaler
   this.rpc = {}
   this.dnodes = {}
   this.remotes = {}
   this.peers = {}
-  this.setInitiator(noopCallback)
+  this.waiting = {}
+  // this.setInitiator(noopCallback)
+  let onSignal = signal => {
+    if (this.waiting[signal.from]) {
+      this.waiting[signal.from].signal(signal.offer)
+      // TODO remove waiting once connected
+    } else {
+      var peer = new SimplePeer(extend(opts, {trickle: false}))
+      peer.once('signal', offer => {
+        this.sendSignal(signal.from, offer)
+      })
+      peer.signal(signal.offer)
+      peer.on('connect', () => {
+        this.peers[signal.from] = peer
+        delete this.waiting[signal.from]
+        this.emit('peer', peer)
+      })
+      console.log('created new peer')
+    }
+  }
+  this.db.changes({
+    since: 'now'
+  }).on('change', function (change) {
+    console.log('change', change)
+    // received a change
+  }).on('error', function (err) {
+    // handle errors
+    console.error('db', err)
+  })
+
+
+  var sendSignal = signalExchange(
+    signalServer,
+    this.privateKey,
+    this.publicKey,
+    onSignal
+  )
+  this.sendSignal = sendSignal
 }
 util.inherits(Swarm, EventEmitter)
-Swarm.prototype.setInitiator = function (cb) {
-  // Create a simple peer and store the offer
-  // TODO: make it kick itself so that an active
-  // initiator is always available.
-  var initOpts = {initiator: true, trickle: false}
-
-  this.initiator = new SimplePeer(_.extend(this.opts, initOpts))
-  this.initiator.once('signal', offer => {
-    var obj = this.put('signal', offer, cb)
-    this.signaler.put(this.publicKey, obj, (err) => {
-      if (err) return this.emit('error', err)
-      this.emit('signal', offer)
-    })
-    // TODO: cleanup after a timeout and reset
-  })
-  this.initiator.once('connect', () => {
-    setupPeer(this, this.initiator)
-    this.emit('peer', this.initiator)
-    this.setInitiator(noopCallback)
-  })
-}
 Swarm.prototype.put = function (key, value, cb) {
   key = this.publicKey + ':' + key
   var _value
@@ -145,18 +210,9 @@ Swarm.prototype.put = function (key, value, cb) {
   return obj
 }
 Swarm.prototype.sign = function (value) {
-  if (typeof value !== 'string') value = JSON.stringify(value)
-  var algo = 'ecdsa-with-SHA1'
-  return crypto.createSign(algo).update(value).sign(this.pemPrivateKey)
+  return sign(this.pemPrivateKey, value)
 }
-Swarm.prototype.verify = function (value, publicKey, signature) {
-  if (!Buffer.isBuffer(publicKey)) publicKey = new Buffer(publicKey, 'hex')
-  if (typeof value !== 'string') value = JSON.stringify(value)
-  var c = 'secp521r1'
-  var pem = ec_pem({public_key: publicKey, curve: c}, c).encodePublicKey()
-  var algo = 'ecdsa-with-SHA1'
-  return crypto.createVerify(algo).update(value).verify(pem, signature)
-}
+Swarm.prototype.verify = verify
 
 Swarm.prototype.getSignal = function (key, cb) {
   // Gets an offer from the server for the given publicKey
@@ -169,31 +225,24 @@ Swarm.prototype.getSignal = function (key, cb) {
     cb(null, obj.value)
   })
 }
-Swarm.prototype.signal = function (offer, cb) {
+Swarm.prototype.call = function (pubKey, cb) {
   if (!cb) cb = noopCallback
-  if (typeof offer === 'string') {
-    this.getSignal(offer, (err, offer) => {
-      if (err) return cb(err)
-      this.signal(offer, cb) // TODO: add retries if offer expires
-    })
-    return
-  }
-  console.log('creating peer', offer)
-  var peer = new SimplePeer(_.extend(this.opts, {trickle: false}))
+  var _opts = extend(this.opts, {initiator: true, trickle: false})
+  var peer = new SimplePeer(_opts)
+  peer.once('signal', offer => {
+    this.sendSignal(pubKey, offer)
+  })
   peer.on('connect', () => {
-    console.log('connected')
-    setupPeer(this, peer)
+    // probably do setup here.
+    cb(null, peer)
+    this.peers[pubKey] = peer
+    delete this.waiting[pubKey]
     this.emit('peer', peer)
   })
-  peer.signal(offer)
-  peer.on('signal', (signal) => {
-    // TODO: Figure out the other side of the signalling.
-    console.log('signal')
-  })
+  this.waiting[pubKey] = peer
 }
 
 
 if (process.browser) {
   window.Swarm = Swarm
-  window.SignalServer = SignalServer
 }
