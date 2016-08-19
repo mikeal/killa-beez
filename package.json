@@ -4,7 +4,7 @@
   "description": "",
   "main": "index.js",
   "scripts": {
-    "start": "node memstore/server.js & beefy index.js:bundle.js --open --index test.html",
+    "start": "node ../signal-exchange/run.js & beefy index.js:bundle.js --open --index test.html",
     "test": "echo \"Error: no test specified\" && exit 1"
   },
   "keywords": [],
@@ -14,12 +14,16 @@
     "dnode": "^1.2.2",
     "duplexify": "^3.4.5",
     "ec-pem": "^0.6.1",
-    "lodash": "^4.15.0",
+    "jsonstream2": "^1.1.1",
+    "lodash.assign": "^4.2.0",
     "multiplex": "^6.7.0",
     "pouchdb": "^5.4.5",
     "pouchdb-adapter-memory": "^5.4.5",
     "pouchdb-replication-stream": "^1.2.7",
-    "simple-peer": "^6.0.5"
+    "signal-exchange": "^0.6.0",
+    "simple-peer": "^6.0.5",
+    "socket.io-client": "^1.4.8",
+    "through2": "^2.0.1"
   },
   "devDependencies": {
     "beefy": "^2.1.8",
