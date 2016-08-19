@@ -7,15 +7,31 @@
 
     <script>
       console.log("in script")
-      var node1 = new Swarm('http://localhost:6688')
-      var node2 = new Swarm('http://localhost:6688')
+      let node1 = new Swarm('http://localhost:6688')
+      let node2 = new Swarm('http://localhost:6688')
       node1.once('signal', () => {
-        // console.log('signal event')
-        // node2.signal(node1.publicKey)
+        console.log('signal event')
+        node2.signal(node1.publicKey)
       })
-      node2.call(node1.publicKey)
-      node1.on('peer',peer => console.log('peer1', peer))
-      node2.on('peer',peer => console.log('peer2', peer))
+      node1.once('ready', () => {
+        console.log("ready")
+        node2.call(node1.publicKey)
+      })
+      console.log('new')
+
+      node1.on('peer', peer => console.log('peer1 got', peer.publicKey))
+      node2.on('peer', peer => console.log('peer2 got', peer.publicKey))
+
+      node1.once('peer', peer => {
+        var node3 = new Swarm('http://localhost:6688')
+        node3.call(node1.publicKey)
+        node3.on('peer', peer => {
+          //
+        })
+      })
+
+      window.node1 = node1 
+
     //   node1.on('peer', (peer) => {
     //     console.log('new peer from peer1', peer)
     //   })
