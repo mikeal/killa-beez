@@ -230,13 +230,22 @@ function Swarm (signalServer, opts) {
       // This offer isn't for me.
     }
   })
+  let sendSignal
+  if (signalServer) {
+    sendSignal = signalExchange(
+      signalServer,
+      privateKey,
+      this.publicKey,
+      onSignal
+    )
+  } else {
+    sendSignal = signalExchange(
+      privateKey,
+      this.publicKey,
+      onSignal
+    )
+  }
 
-  var sendSignal = signalExchange(
-    signalServer,
-    privateKey,
-    this.publicKey,
-    onSignal
-  )
   this.sendSignal = sendSignal
   this._callQueue = []
   sendSignal.onReady = () => {

@@ -15,6 +15,29 @@ conditions by using the closest peer as a relay similar to how Skype's
 Any peer can connect to the swarm given the public key of *any* node in the
 network.
 
+```javascript
+let node1 = new Swarm()
+let node2 = new Swarm()
+node1.once('signal', () => {
+  node2.signal(node1.publicKey)
+})
+node1.once('ready', () => {
+  node2.call(node1.publicKey)
+})
+
+node1.on('peer', peer => console.log('peer1 got', peer.publicKey))
+node2.on('peer', peer => console.log('peer2 got', peer.publicKey))
+
+node1.once('peer', peer => {
+  let node3 = new Swarm()
+  node3.call(node1.publicKey)
+  node3.on('peer', peer => {
+    console.log(( (Date.now() - starttime) / 1000 ) + 's')
+    console.log('peer3 got', peer.publicKey)
+  })
+})
+```
+
 ### Principals
 
 * Each `Swarm` instance generates an ECDH public/private keypair for its node.

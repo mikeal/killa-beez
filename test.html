@@ -6,9 +6,9 @@
     <script src="bundle.js"></script>
 
     <script>
-      console.log("in script")
-      let node1 = new Swarm('http://localhost:6688')
-      let node2 = new Swarm('http://localhost:6688')
+      console.log("in script.")
+      let node1 = new Swarm()
+      let node2 = new Swarm()
       node1.once('signal', () => {
         node2.signal(node1.publicKey)
       })
@@ -20,7 +20,7 @@
       node2.on('peer', peer => console.log('peer2 got', peer.publicKey))
       var starttime = Date.now()
       node1.once('peer', peer => {
-        var node3 = new Swarm('http://localhost:6688')
+        var node3 = new Swarm()
         node3.call(node1.publicKey)
         node3.on('peer', peer => {
           console.log(( (Date.now() - starttime) / 1000 ) + 's')
