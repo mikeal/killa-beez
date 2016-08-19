@@ -9,8 +9,7 @@ const SimplePeer = require('simple-peer')
 const extend = require('lodash.assign')
 const jsonstream = require('jsonstream2')
 const through2 = require('through2')
-
-const signalExchange = require('../signal-exchange')
+const signalExchange = require('signal-exchange')
 
 const noopCallback = (err) => { if (err) console.error(err) }
 
