@@ -18,24 +18,18 @@ network.
 ```javascript
 let node1 = new Swarm()
 let node2 = new Swarm()
-node1.once('signal', () => {
-  node2.signal(node1.publicKey)
-})
-node1.once('ready', () => {
-  node2.call(node1.publicKey)
-})
+let node3 = new Swarm()
 
+// This will print 6 times, as each peer connects to both other peers.
 node1.on('peer', peer => console.log('peer1 got', peer.publicKey))
 node2.on('peer', peer => console.log('peer2 got', peer.publicKey))
+node3.on('peer', peer => console.log('peer3 got', peer.publicKey))
 
-node1.once('peer', peer => {
-  let node3 = new Swarm()
-  node3.call(node1.publicKey)
-  node3.on('peer', peer => {
-    console.log(( (Date.now() - starttime) / 1000 ) + 's')
-    console.log('peer3 got', peer.publicKey)
-  })
-})
+node1.call(node2.publicKey) // connect peers 1 and 2 together
+node3.call(node1.publicKey) // connect peers 3 and 1 together
+// This will end up connecting all three
+// nodes together even though only two
+// call each other through signal exchange.
 ```
 
 ### Principals
