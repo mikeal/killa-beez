@@ -33,6 +33,11 @@ function cypherStream (sec, stream) {
 // not create new initiators for.
 
 function setupPeer (swarm, peer) {
+  function emit () {
+    swarm.emit.apply(swarm, arguments)
+    peer.emit.apply(peer, arguments)
+  }
+
   let plex = multiplex((stream, id) => {
     let type
     let toPublicKey
@@ -41,13 +46,6 @@ function setupPeer (swarm, peer) {
       [type, direction, toPublicKey] = type.split(':')
     } else {
       type = id
-    }
-
-    // TODO relay
-
-    function emit () {
-      swarm.emit.apply(swarm, arguments)
-      peer.emit.apply(peer, arguments)
     }
 
     switch (type) {
@@ -63,17 +61,8 @@ function setupPeer (swarm, peer) {
         // TODO: setup signature validation
         break
       case 'dnode':
-        var d = dnode(swarm.rpc)
-        d.publicKey = peer.publicKey
-        d.on('remote', remote => {
-          remote.publicKey = peer.publicKey
-          swarm.remotes[peer.publicKey] = remote
-          emit('remote', remote)
-        })
-
-        emit('dnode', dnode)
+        let d = dnode(swarm.rpc)
         d.pipe(stream).pipe(d)
-        swarm.dnodes[peer.publicKey] = d
         break
       case 'relay':
         let relayid
@@ -100,7 +89,19 @@ function setupPeer (swarm, peer) {
   // }
 
   plex.pipe(peer).pipe(plex)
-  plex.createStream('dnode')
+
+  // Setup dnode
+  let dnodeStream = plex.createStream('dnode')
+  let d = dnode()
+  d.on('remote', remote => {
+    remote.publicKey = peer.publicKey
+    swarm.remotes[peer.publicKey] = remote
+    emit('remote', remote)
+  })
+  d.publicKey = peer.publicKey
+  dnodeStream.pipe(d).pipe(dnodeStream)
+
+  // Setup DB replication
   let decoder = jsonstream.parse('*')
   let dbStream = plex.createStream('db')
 
@@ -117,6 +118,15 @@ function setupPeer (swarm, peer) {
   peer.plex = plex
 }
 
+// Default RPC methods
+function RPC (swarm) {
+  // This can't be a class-like object because dnode
+  // requires that it be a regular hash object.
+  let rpc = {}
+  rpc.ping = cb => cb(null)
+  return rpc
+}
+
 function Swarm (signalServer, opts) {
   // Crypto Setup
   let mykey = crypto.createECDH('secp521r1')
@@ -126,7 +136,7 @@ function Swarm (signalServer, opts) {
 
   this.db = new PouchDB(`rswarm:${this.publicKey}`, {adapter: 'memory'})
   this.opts = opts | {}
-  this.rpc = {}
+  this.rpc = RPC()
   this.dnodes = {}
   this.remotes = {}
   this.peers = {}
