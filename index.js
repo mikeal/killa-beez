@@ -135,18 +135,24 @@ function Swarm (signalServer, opts) {
   let privateKey = mykey.getPrivateKey().toString('hex')
 
   this.db = new PouchDB(`rswarm:${this.publicKey}`, {adapter: 'memory'})
-  this.opts = opts | {}
   this.rpc = RPC()
+
+  this.maxDelay = 1000
+
+  this.opts = opts | {}
   this.dnodes = {}
   this.remotes = {}
   this.peers = {}
   this.waiting = {}
   this.network = {}
+  this.relays = {}
 
   this.on('remote', remote => {
-    let start = Date.now()
-    remote.ping(() => {
-      this.network[remote.publicKey] = Date.now() - start
+    this.ping(remote.publicKey, (err, delay) => {
+      if (err) return console.error('cannot ping', err)
+      if (delay > this.maxDelay) {
+        this.reroute(remote.publicKey)
+      }
     })
   })
 
@@ -285,10 +291,10 @@ Swarm.prototype.put = function (key, value, cb) {
   if (typeof value !== 'string') _value = JSON.stringify(value)
   else _value = value
   var obj = {_id: key}
-  obj.value = value
-  obj.signature = this.sendSignal.sign(_value).toString('hex')
   this.db.get(key, (err, orig) => {
     if (!err) obj._rev = orig._rev
+    obj.value = value
+    obj.signature = this.sendSignal.sign(_value).toString('hex')
     this.db.put(obj, cb)
   })
   return obj
@@ -308,6 +314,46 @@ Swarm.prototype.call = function (pubKey, cb) {
   })
   peer.on('connect', createOnConnect(this, peer, pubKey, cb))
   this.waiting[pubKey] = peer
+}
+Swarm.prototype.ping = function (publicKey, cb) {
+  let start = Date.now()
+  this.getRemote(publicKey).ping(() => {
+    let delay = Date.now() - start
+    this.network[publicKey] = delay
+    this.updateNetwork()
+    if (cb) cb(null, delay)
+  })
+}
+Swarm.prototype.getRemote = function (publicKey) {
+  return this.remotes[publicKey]
+}
+Swarm.prototype.updateNetwork = function () {
+  let _value = {network: this.network, relays: this.relays}
+  this.put(`network:${this.publicKey}`, _value, noopCallback)
+}
+Swarm.prototype.reroute = function (publicKey) {
+  let fastestTTL = Infinity
+  let fastestPublicKey = null
+  let _filter = doc => {
+    if (doc._id.slice(0, 'network'.length) === 'network') {
+      let pubKey = doc._id.slice('network:'.length)
+      if (pubKey === this.publicKey) return
+      if (!this.network[pubKey]) return
+      if (!doc.value.network[publicKey]) return
+      let ttl = (doc.value.network[publicKey] + this.network[pubKey] + 200)
+      if (ttl < fastestTTL) {
+        fastestTTL = ttl
+        fastestPublicKey = pubKey
+      }
+    }
+    return false
+  }
+  this.db.changes({include_docs: true, filter: _filter})
+  .then(() => {
+    if (fastestPublicKey && fastestTTL < this.maxDelay) {
+      console.log('TODO: Relay!')
+    }
+  })
 }
 
 if (process.browser) {
