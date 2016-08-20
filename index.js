@@ -141,7 +141,15 @@ function Swarm (signalServer, opts) {
   this.remotes = {}
   this.peers = {}
   this.waiting = {}
-  // this.setInitiator(noopCallback)
+  this.network = {}
+
+  this.on('remote', remote => {
+    let start = Date.now()
+    remote.ping(() => {
+      this.network[remote.publicKey] = Date.now() - start
+    })
+  })
+
   let onSignal = signal => {
     if (this.waiting[signal.from]) {
       this.waiting[signal.from].signal(signal.offer)
