@@ -9,7 +9,9 @@ const SimplePeer = require('simple-peer')
 const extend = require('lodash.assign')
 const jsonstream = require('jsonstream2')
 const through2 = require('through2')
-const signalExchange = require('signal-exchange')
+const signalExchange = require('../signal-exchange')
+const getRoom = require('../room-exchange')
+const _ = require('lodash')
 
 const noopCallback = (err) => { if (err) console.error(err) }
 
@@ -133,6 +135,8 @@ function Swarm (signalServer, opts) {
   mykey.generateKeys()
   this.publicKey = mykey.getPublicKey().toString('hex')
   let privateKey = mykey.getPrivateKey().toString('hex')
+
+  this._privateKey = privateKey
 
   this.db = new PouchDB(`rswarm:${this.publicKey}`, {adapter: 'memory'})
   this.rpc = RPC()
@@ -284,6 +288,21 @@ function Swarm (signalServer, opts) {
       if (err) this.emit('error', err)
     })
   }
+
+  this.joinRoom = (host, room) => {
+    this.joinRoom = () => { throw new Error('Already in room.') }
+    getRoom(host, room, privateKey, this.publicKey, (err, data) => {
+      let keys = data.keys
+      // TODO: uniq(keys)
+      keys = _.uniq(keys)
+      while (keys.indexOf(this.publicKey) !== -1) {
+        keys.splice(keys.indexOf(this.publicKey), 1)
+      }
+      sendSignal.ping(keys, (key) => {
+        this.call(key)
+      })
+    })
+  }
 }
 util.inherits(Swarm, EventEmitter)
 Swarm.prototype.put = function (key, value, cb) {
@@ -303,6 +322,9 @@ Swarm.prototype.sign = function (value) {
   return this.sendSignal.sign(this.pemPrivateKey, value)
 }
 Swarm.prototype.call = function (pubKey, cb) {
+  if (this.waiting[pubKey]) return
+  if (this.peers[pubKey]) return
+
   if (!cb) cb = noopCallback
   if (!this._ready) return this._callQueue.push([pubKey, cb])
 
@@ -351,7 +373,7 @@ Swarm.prototype.reroute = function (publicKey) {
   this.db.changes({include_docs: true, filter: _filter})
   .then(() => {
     if (fastestPublicKey && fastestTTL < this.maxDelay) {
-      console.log('TODO: Relay!')
+      // console.log('TODO: Relay!')
     }
   })
 }
@@ -359,6 +381,7 @@ Swarm.prototype.reroute = function (publicKey) {
 if (process.browser) {
   window.Swarm = Swarm
 }
+module.exports = (signalServer, opts) => new Swarm(signalServer, opts)
 
 function createOnConnect (swarm, peer, pubKey, cb) {
   function _ret () {
