@@ -8,26 +8,26 @@
     <script>
       console.log("in script.")
 
-      let node1 = new Swarm()
-      let node2 = new Swarm()
-      let node3 = new Swarm()
+      let node1 = new Swarm('http://localhost:6688')
+      let node2 = new Swarm('http://localhost:6688')
+      let node3 = new Swarm('http://localhost:6688')
 
-      node1.on('peer', peer => console.log('peer1 got', peer.publicKey))
-      node2.on('peer', peer => console.log('peer2 got', peer.publicKey))
-      node3.on('peer', peer => console.log('peer3 got', peer.publicKey))
+      var delayed = false
+      node1.rpc.ping = cb => {
+        if (!delayed) setTimeout(() => cb(null), 3000)
+        else cb(null)
+        delayed = true
+      }
+
+      // node1.on('peer', peer => console.log('peer1 got', peer.publicKey))
+      // node2.on('peer', peer => console.log('peer2 got', peer.publicKey))
+      // node3.on('peer', peer => console.log('peer3 got', peer.publicKey))
 
       node1.call(node2.publicKey)
       node3.call(node1.publicKey)
 
-      window.node1 = node1
-
-    //   node1.on('peer', (peer) => {
-    //     console.log('new peer from peer1', peer)
-    //   })
-    //   node2.on('peer', (peer) => {
-    //     console.log('new peer from peer2', peer)
-    //   })
-    // </script>
+      window.nodes = [node1, node2, node3]
+    </script>
   </head>
   <body>
 

@@ -143,7 +143,7 @@ function Swarm (signalServer, opts) {
 
   this.maxDelay = 1000
 
-  this.opts = opts | {}
+  this.opts = opts || {}
   this.dnodes = {}
   this.remotes = {}
   this.peers = {}
@@ -183,6 +183,8 @@ function Swarm (signalServer, opts) {
   let _opts = {since: 'now', live: true, include_docs: true}
   this.db.changes(_opts).on('change', change => {
     let [type, fromPublicKey, toPublicKey] = change.id.split(':')
+    let doc = change.doc
+    this.emit(`data:${type}`, doc)
     if (type === 'peer') {
       if (fromPublicKey === this.publicKey) return // This is me.
       if (this.peers[fromPublicKey]) return
@@ -219,7 +221,6 @@ function Swarm (signalServer, opts) {
       if (this.peers[toPublicKey]) return
       if (this.peers[fromPublicKey]) return
 
-      let doc = change.doc
       if (fromPublicKey === this.publicKey) {
         // Look for response in document we wrote
         if (!doc.answer) return // This is my write.
@@ -255,7 +256,6 @@ function Swarm (signalServer, opts) {
         peer.signal(offer)
         peer.once('connect', createOnConnect(this, peer, fromPublicKey))
       }
-      // This offer isn't for me.
     }
   })
   let sendSignal
@@ -288,10 +288,14 @@ function Swarm (signalServer, opts) {
       if (err) this.emit('error', err)
     })
   }
+  this.encrypt = this.sendSignal.encrypt
+  this.decrypt = this.sendSignal.decrypt
+  this.sign = this.sendSignal.sign
 
   this.joinRoom = (host, room) => {
     this.joinRoom = () => { throw new Error('Already in room.') }
     getRoom(host, room, privateKey, this.publicKey, (err, data) => {
+      if (err) return console.error(err)
       let keys = data.keys
       // TODO: uniq(keys)
       keys = _.uniq(keys)
@@ -313,6 +317,7 @@ Swarm.prototype.put = function (key, value, cb) {
   this.db.get(key, (err, orig) => {
     if (!err) obj._rev = orig._rev
     obj.value = value
+    obj.from = this.publicKey
     obj.signature = this.sendSignal.sign(_value).toString('hex')
     this.db.put(obj, cb)
   })
@@ -350,8 +355,27 @@ Swarm.prototype.getRemote = function (publicKey) {
   return this.remotes[publicKey]
 }
 Swarm.prototype.updateNetwork = function () {
-  let _value = {network: this.network, relays: this.relays}
-  this.put(`network:${this.publicKey}`, _value, noopCallback)
+  // Network updates tend to happen in fast succession.
+  // This limits the updates to one per second so that
+  // the changes can be batched.
+  // This also means that it will always take at least
+  // one second to update the local network information.
+  this._networkChanged = true
+  if (!this._networkUpdateTimeout) {
+    this._networkUpdateTimeout = setTimeout(() => {
+      this._networkChanged = false
+      let _value = {network: this.network, relays: this.relays}
+      this.put(`network:${this.publicKey}`, _value, (err) => {
+        if (err) return console.error(err)
+        this._networkUpdateTimeout = false
+        if (this._networkChanged) this.updateNetwork()
+      })
+    }, 1000)
+  }
+}
+Swarm.prototype.activeKeys = function (cb) {
+  // TODO: parse through the peers in the db as well.
+  cb(null, Object.keys(this.waiting).concat(Object.keys(this.peers)))
 }
 Swarm.prototype.reroute = function (publicKey) {
   let fastestTTL = Infinity
