@@ -281,9 +281,10 @@ function Swarm (signalServer, opts) {
     this._callQueue.forEach(args => this.call(...args))
     this._callQueue = []
     this.emit('ready')
-    var obj = { nonce: crypto.randomBytes(10).toString('hex'),
+    let obj = { nonce: crypto.randomBytes(10).toString('hex'),
                 joined: Date.now()
               }
+    if (this._info) obj = _.extend(this._info, obj)
     this.put(`peer:${this.publicKey}`, obj, (err, info) => {
       if (err) this.emit('error', err)
     })
@@ -400,6 +401,18 @@ Swarm.prototype.reroute = function (publicKey) {
       // console.log('TODO: Relay!')
     }
   })
+}
+Swarm.prototype.setInfo = function (info) {
+  this._info = info
+  if (!this._ready) return
+  else {
+    let obj = _.extend(info, { nonce: crypto.randomBytes(10).toString('hex'),
+                               joined: Date.now()
+                             })
+    this.put(`peer:${this.publicKey}`, obj, (err, info) => {
+      if (err) console.error(err)
+    })
+  }
 }
 
 if (process.browser) {
