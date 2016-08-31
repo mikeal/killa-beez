@@ -20,7 +20,8 @@
     "pouchdb": "^5.4.5",
     "pouchdb-adapter-memory": "^5.4.5",
     "pouchdb-replication-stream": "^1.2.7",
-    "signal-exchange": "^0.7.0",
+    "room-exchange": "^0.3.0",
+    "signal-exchange": "^0.8.0",
     "simple-peer": "^6.0.5",
     "socket.io-client": "^1.4.8",
     "through2": "^2.0.1"
