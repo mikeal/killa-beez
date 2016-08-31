@@ -200,7 +200,7 @@ function Swarm (signalServer, opts) {
           let value = this.sendSignal.encodeOffer(fromPublicKey, offer)
           let doc = {_id: id, initiator: value, created: peer._created}
           this.db.put(doc, (err, info) => {
-            if (err) return console.error('could not write', id)
+            if (err) return console.error('could not write', doc, err)
             // TODO: figure out when this might happen.
           })
         })
