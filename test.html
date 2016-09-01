@@ -12,6 +12,8 @@
       let node2 = new Swarm('http://localhost:6688')
       let node3 = new Swarm('http://localhost:6688')
 
+      let start = Date.now()
+
       var delayed = false
       node1.rpc.ping = cb => {
         if (!delayed) setTimeout(() => cb(null), 3000)
@@ -19,14 +21,39 @@
         delayed = true
       }
 
-      // node1.on('peer', peer => console.log('peer1 got', peer.publicKey))
-      // node2.on('peer', peer => console.log('peer2 got', peer.publicKey))
-      // node3.on('peer', peer => console.log('peer3 got', peer.publicKey))
+      function complete () {
+        return nodes.map(n => Object.keys(n.remotes).length).reduce((x,y) => x+y, 0) === nodes.length * 5
+      }
+
+      function _print (n) {
+        let _ret = peer => {
+          let delay = (Date.now() - start) / 1000
+          console.log(`peer${n} got ${peer.publicKey.slice(0, 10)} @ ${delay}s`)
+          if (complete()) console.log('complete')
+        }
+        return _ret
+      }
+
+      node1.on('remote', _print(1))
+      node2.on('remote', _print(2))
+      node3.on('remote', _print(3))
 
       node1.call(node2.publicKey)
       node3.call(node1.publicKey)
 
-      window.nodes = [node1, node2, node3]
+      let node4 = new Swarm('http://localhost:6688')
+      let node5 = new Swarm('http://localhost:6688')
+      let node6 = new Swarm('http://localhost:6688')
+      node4.on('remote', _print(4))
+      node5.on('remote', _print(5))
+      node6.on('remote', _print(6))
+      node4.call(node5.publicKey)
+      node5.call(node6.publicKey)
+      node6.call(node1.publicKey)
+
+      window.nodes = [node1, node2, node3, node4, node5, node6]
+
+      window.nodes.forEach(n => n.on('disconnect', p => console.log('disconnect', p)))
     </script>
   </head>
   <body>

@@ -141,41 +141,48 @@ function Swarm (signalServer, opts) {
   this.network = {}
   this.relays = {}
 
+  this.on('peer', (peer) => {
+    this.network[peer.publicKey] = null
+  })
+
   this.on('remote', remote => {
     this.ping(remote.publicKey, (err, delay) => {
       if (err) return console.error('cannot ping', err)
     })
-    // TODO: periodically refresh their network info.
-    remote.getNetwork((err, net) => {
-      if (err) return console.error(err)
-      let netkeys = _.keys(net)
-      let newpeers = _.without(netkeys, this.publicKey, ..._.keys(this.peers))
-      newpeers.forEach(pubKey => {
-        if (pubKey === this.publicKey) throw new Error('wtf1')
-        if (pubKey < this.publicKey) {
-          // My key is larger, I need to be the initiator.
-          let _opts = _.extend({}, {initiator: true}, this.opts)
-          let peer = new SimplePeer(_opts)
-          peer.nonce = // big ass random number, to be compared later.
-          peer.on('signal', signal => {
-            signal = this.encrypt(pubKey, signal)
-            remote.proxySignal(pubKey, this.publicKey, signal)
-          })
-          peer._created = Date.now()
-          peer.once('connect', createOnConnect(this, peer, pubKey))
-          this.peers[pubKey] = peer
-          if (err) return console.error(pubKey.slice(0,9), err)
-        } else {
-          // Their key is larger, they need to know about me.
-          remote.inform(pubKey, this.publicKey, (err) => {
-            if (err) {
-              // We don't need to do anything, this likely errored
-              // because it was already connecting.
-            }
-          })
-        }
+    let checkNetwork = () => {
+      remote.getNetwork((err, net) => {
+        if (err) return console.error(err)
+        let netkeys = _.keys(net)
+        let newpeers = _.without(netkeys, this.publicKey, ..._.keys(this.peers))
+        newpeers.forEach(pubKey => {
+          if (pubKey === this.publicKey) throw new Error('wtf1')
+          if (pubKey < this.publicKey) {
+            // My key is larger, I need to be the initiator.
+            let _opts = _.extend({}, {initiator: true}, this.opts)
+            let peer = new SimplePeer(_opts)
+            peer.nonce = // big ass random number, to be compared later.
+            peer.on('signal', signal => {
+              signal = this.encrypt(pubKey, signal)
+              remote.proxySignal(pubKey, this.publicKey, signal)
+            })
+            peer._created = Date.now()
+            peer.once('connect', createOnConnect(this, peer, pubKey))
+            this.peers[pubKey] = peer
+            if (err) return console.error(pubKey.slice(0,9), err)
+          } else {
+            // Their key is larger, they need to know about me.
+            remote.inform(pubKey, this.publicKey, (err) => {
+              if (err) {
+                // We don't need to do anything, this likely errored
+                // because it was already connecting.
+              }
+            })
+          }
+        })
       })
-    })
+      remote._timeout = setTimeout(checkNetwork, 1000 * 30)
+    }
+    checkNetwork()
   })
   window.SimplePeer = SimplePeer
 
@@ -292,6 +299,7 @@ function createOnConnect (swarm, peer, pubKey, cb) {
   function onclose () {
     delete swarm.peers[pubKey]
     delete swarm.remotes[pubKey]
+    delete swarm.network[pubKey]
     swarm.emit('disconnect', pubKey, peer)
   }
   peer.on('error', onclose)
