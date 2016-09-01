@@ -82,7 +82,7 @@ function RPC (swarm) {
       return cb(new Error('Already connecting'))
     }
     if (pubKey === swarm.publicKey) throw new Error('wtf2')
-    let _opts = _.extend({}, {initiator: true}, swarm.opts)
+    let _opts = _.extend({trickle:false}, {initiator: true}, swarm.opts)
     let peer = new SimplePeer(_opts)
     peer.on('signal', signal => {
       signal = swarm.encrypt(pubKey, signal)
@@ -103,7 +103,7 @@ function RPC (swarm) {
     sig = swarm.decrypt(pubKey, sig)
 
     if (sig.type === 'offer' && !swarm.peers[pubKey]) {
-      let _opts = _.extend({}, swarm.opts)
+      let _opts = _.extend({trickle:false}, swarm.opts)
       let peer = new SimplePeer(_opts)
       peer.on('signal', signal => {
         signal = swarm.encrypt(pubKey, signal)
@@ -158,7 +158,7 @@ function Swarm (signalServer, opts) {
           if (pubKey === this.publicKey) throw new Error('wtf1')
           if (pubKey < this.publicKey) {
             // My key is larger, I need to be the initiator.
-            let _opts = _.extend({}, {initiator: true}, this.opts)
+            let _opts = _.extend({trickle:false}, {initiator: true}, this.opts)
             let peer = new SimplePeer(_opts)
             peer.nonce = // big ass random number, to be compared later.
             peer.on('signal', signal => {
