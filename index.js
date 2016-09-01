@@ -1,38 +1,15 @@
-const PouchDB = require('pouchdb')
 const multiplex = require('multiplex')
 const crypto = require('crypto')
 const dnode = require('dnode')
-const duplexify = require('duplexify')
 const EventEmitter = require('events').EventEmitter
 const util = require('util')
 const SimplePeer = require('simple-peer')
 const extend = require('lodash.assign')
-const jsonstream = require('jsonstream2')
-const through2 = require('through2')
 const signalExchange = require('signal-exchange')
 const getRoom = require('room-exchange')
 const _ = require('lodash')
 
 const noopCallback = (err) => { if (err) console.error(err) }
-
-PouchDB.plugin(require('pouchdb-adapter-memory'))
-
-// TODO: migrated to native-crypto
-// https://www.npmjs.com/package/native-crypto
-
-function cypherStream (sec, stream) {
-  var encoder = crypto.createCypher('aes192', sec)
-  encoder.pipe(stream)
-  return duplexify(encoder, stream.pipe(crypto.createDecipher('aes192', sec)))
-}
-
-// TODO: the most efficient thing to do this will be
-// to ask each node over RPC what nodes it is connected to and create
-// offers in the database, then push replicate its locally populated
-// signals db.
-// *Then* it should write its peer record.
-// The code that picks up new peers in the changes feed should also
-// not create new initiators for.
 
 function setupPeer (swarm, peer) {
   function emit () {
@@ -51,17 +28,6 @@ function setupPeer (swarm, peer) {
     }
 
     switch (type) {
-      case 'db':
-        emit('db', peer.publicKey)
-        let encoder = jsonstream.stringify()
-        let opts = {live: true, since: 0, include_docs: true}
-        swarm.db.changes(opts).on('change', change => {
-          encoder.write(change)
-        })
-        encoder.pipe(stream)
-
-        // TODO: setup signature validation
-        break
       case 'dnode':
         let d = dnode(swarm.rpc)
         d.pipe(stream).pipe(d)
@@ -83,13 +49,6 @@ function setupPeer (swarm, peer) {
     }
   })
 
-  // function relay () {
-  //   // TODO
-  //   var secret = swarm.computeSecret(toPublicKey)
-  //   stream = cypherStream(secret, stream)
-  //   stream.publicKey = peer.publicKey
-  // }
-
   plex.pipe(peer).pipe(plex)
 
   // Setup dnode
@@ -103,20 +62,6 @@ function setupPeer (swarm, peer) {
   d.publicKey = peer.publicKey
   dnodeStream.pipe(d).pipe(dnodeStream)
 
-  // Setup DB replication
-  let decoder = jsonstream.parse('*')
-  let dbStream = plex.createStream('db')
-
-  dbStream.pipe(decoder).pipe(through2.obj((change, enc, cb) => {
-    if (!change.doc._id) throw new Error('no id')
-    // TODO: implement at LRU that doesn't write documents
-    // that come out of this CouchDB.
-    swarm.db.put(change.doc, {new_edits: false}, (err, info) => {
-      if (err) console.error('Doc did not replicate. ' + info.id)
-      cb(null)
-    })
-  }))
-
   peer.plex = plex
 }
 
@@ -126,6 +71,54 @@ function RPC (swarm) {
   // requires that it be a regular hash object.
   let rpc = {}
   rpc.ping = cb => cb(null)
+  rpc.getNetwork = cb => cb(null, swarm.network)
+
+  // TODO: verify the request came from this public key
+  rpc.connect = (proxyKey, pubKey, cb) => {
+    if (pubKey > swarm.publicKey) {
+      return cb(new Error('Cannot connect to a larger pub key.'))
+    }
+    if (swarm.peers[pubKey]) {
+      return cb(new Error('Already connecting'))
+    }
+    if (pubKey === swarm.publicKey) throw new Error('wtf2')
+    let _opts = _.extend({}, {initiator: true}, swarm.opts)
+    let peer = new SimplePeer(_opts)
+    peer.on('signal', signal => {
+      signal = swarm.encrypt(pubKey, signal)
+      swarm.getRemote(proxyKey).proxySignal(pubKey, swarm.publicKey, signal, cb)
+    })
+    peer._created = Date.now()
+    peer.once('connect', createOnConnect(swarm, peer, pubKey))
+    swarm.peers[pubKey] = peer
+  }
+
+  rpc.inform = (toPublicKey, fromPublicKey, cb) => {
+    swarm.getRemote(toPublicKey).connect(swarm.publicKey, fromPublicKey, cb)
+  }
+
+  rpc.signal = (proxyKey, pubKey, sig, cb) => {
+    // TODO: Use proxied RPC to force the other side to initiate.
+    // this way it can deny the request if it is mid-stream.
+    sig = swarm.decrypt(pubKey, sig)
+
+    if (sig.type === 'offer' && !swarm.peers[pubKey]) {
+      let _opts = _.extend({}, swarm.opts)
+      let peer = new SimplePeer(_opts)
+      peer.on('signal', signal => {
+        signal = swarm.encrypt(pubKey, signal)
+        swarm.getRemote(proxyKey).proxySignal(pubKey, swarm.publicKey, signal, cb)
+      })
+      peer._created = Date.now()
+      peer.once('connect', createOnConnect(swarm, peer, pubKey))
+      swarm.peers[pubKey] = peer
+    }
+    swarm.peers[pubKey].signal(sig)
+  }
+  rpc.proxySignal = (toPubKey, fromPubKey, sig, cb) => {
+    if (!cb) cb = () => {}
+    swarm.getRemote(toPubKey).signal(swarm.publicKey, fromPubKey, sig, cb)
+  }
   return rpc
 }
 
@@ -138,126 +131,71 @@ function Swarm (signalServer, opts) {
 
   this._privateKey = privateKey
 
-  this.db = new PouchDB(`rswarm:${this.publicKey}`, {adapter: 'memory'})
-  this.rpc = RPC()
-
+  this.rpc = RPC(this)
   this.maxDelay = 1000
 
   this.opts = opts || {}
   this.dnodes = {}
   this.remotes = {}
   this.peers = {}
-  this.waiting = {}
   this.network = {}
   this.relays = {}
 
   this.on('remote', remote => {
     this.ping(remote.publicKey, (err, delay) => {
       if (err) return console.error('cannot ping', err)
-      if (delay > this.maxDelay) {
-        this.reroute(remote.publicKey)
-      }
+    })
+    // TODO: periodically refresh their network info.
+    remote.getNetwork((err, net) => {
+      if (err) return console.error(err)
+      let netkeys = _.keys(net)
+      let newpeers = _.without(netkeys, this.publicKey, ..._.keys(this.peers))
+      newpeers.forEach(pubKey => {
+        if (pubKey === this.publicKey) throw new Error('wtf1')
+        if (pubKey < this.publicKey) {
+          // My key is larger, I need to be the initiator.
+          let _opts = _.extend({}, {initiator: true}, this.opts)
+          let peer = new SimplePeer(_opts)
+          peer.nonce = // big ass random number, to be compared later.
+          peer.on('signal', signal => {
+            signal = this.encrypt(pubKey, signal)
+            remote.proxySignal(pubKey, this.publicKey, signal)
+          })
+          peer._created = Date.now()
+          peer.once('connect', createOnConnect(this, peer, pubKey))
+          this.peers[pubKey] = peer
+          if (err) return console.error(pubKey.slice(0,9), err)
+        } else {
+          // Their key is larger, they need to know about me.
+          remote.inform(pubKey, this.publicKey, (err) => {
+            if (err) {
+              // We don't need to do anything, this likely errored
+              // because it was already connecting.
+            }
+          })
+        }
+      })
     })
   })
+  window.SimplePeer = SimplePeer
 
   let onSignal = signal => {
-    if (this.waiting[signal.from]) {
-      this.waiting[signal.from].signal(signal.offer)
-      // TODO remove waiting once connected
+    if (this.peers[signal.from]) {
+      // Response for initiated request.
+      this.peers[signal.from].signal(signal.offer)
     } else {
-      var peer = new SimplePeer(extend(opts, {trickle: false}))
+      let _opts = _.extend({}, {trickle: false}, opts)
+      let peer = new SimplePeer(_opts)
       peer.publicKey = signal.from
       peer.once('signal', offer => {
         this.sendSignal(signal.from, offer)
       })
       peer.signal(signal.offer)
-      peer.on('connect', () => {
-        this.peers[signal.from] = peer
-        delete this.waiting[signal.from]
-        setupPeer(this, peer)
-        this.emit('peer', peer)
-      })
+      peer.once('connect', createOnConnect(this, peer, signal.from))
+      this.peers[signal.from] = peer
     }
   }
 
-  let _opts = {since: 'now', live: true, include_docs: true}
-  this.db.changes(_opts).on('change', change => {
-    let [type, fromPublicKey, toPublicKey] = change.id.split(':')
-    let doc = change.doc
-    this.emit(`data:${type}`, doc)
-    if (type === 'peer') {
-      if (fromPublicKey === this.publicKey) return // This is me.
-      if (this.peers[fromPublicKey]) return
-      if (this.waiting[fromPublicKey]) return
-      // We have not connected to this peer.
-      // Now we will write an offer to this peer
-      // and repliate it into the network.
-      let initiatePeerConnection = () => {
-        let _opts = extend(this.opts, {initiator: true, trickle: false})
-        let peer = new SimplePeer(_opts)
-        peer.once('signal', offer => {
-          let id = `offer:${this.publicKey}:${fromPublicKey}`
-          let value = this.sendSignal.encodeOffer(fromPublicKey, offer)
-          let doc = {_id: id, initiator: value, created: peer._created}
-          this.db.put(doc, (err, info) => {
-            if (err) return console.error('could not write', doc, err)
-            // TODO: figure out when this might happen.
-          })
-        })
-        peer._created = Date.now()
-        peer.once('connect', createOnConnect(this, peer, fromPublicKey))
-      }
-      if (fromPublicKey < this.publicKey) {
-        initiatePeerConnection()
-      } else {
-        // Wait one minute to see if they have initiated a connection
-        // first.
-        setTimeout(() => {
-          if (!this.peers[fromPublicKey]) initiatePeerConnection()
-        }, 60 * 1000)
-      }
-    }
-    if (type === 'offer') {
-      if (this.peers[toPublicKey]) return
-      if (this.peers[fromPublicKey]) return
-
-      if (fromPublicKey === this.publicKey) {
-        // Look for response in document we wrote
-        if (!doc.answer) return // This is my write.
-
-        let answer = this.sendSignal.decrypt(toPublicKey, doc.answer.offer)
-        if (!this.waiting[toPublicKey]) {
-          return console.error('No peer waiting.')
-        }
-        window.waiter = this.waiting[toPublicKey]
-
-        this.waiting[toPublicKey].signal(answer)
-      } else if (toPublicKey === this.publicKey) {
-        if (doc.answer) return // This is my write.
-        let offer = this.sendSignal.decrypt(fromPublicKey, doc.initiator.offer)
-
-        if (this.waiting[fromPublicKey]) {
-          if (!this.waiting[fromPublicKey]._offer) {
-            if (doc.created < this.waiting[fromPublicKey]._created) {
-              return // Go with most recently created offer.
-            }
-          }
-        }
-        let _opts = extend(this.opts, {trickle: false})
-        let peer = new SimplePeer(_opts)
-        peer.once('signal', offer => {
-          doc.answer = this.sendSignal.encodeOffer(fromPublicKey, offer)
-          this.db.put(doc, (err, info) => {
-            if (err) return console.error('could not write', doc._id)
-            // TODO: figure out when this might happen.
-          })
-        })
-
-        peer.signal(offer)
-        peer.once('connect', createOnConnect(this, peer, fromPublicKey))
-      }
-    }
-  })
   let sendSignal
   if (signalServer) {
     sendSignal = signalExchange(
@@ -284,10 +222,7 @@ function Swarm (signalServer, opts) {
     let obj = { nonce: crypto.randomBytes(10).toString('hex'),
                 joined: Date.now()
               }
-    if (this._info) obj = _.extend(this._info, obj)
-    this.put(`peer:${this.publicKey}`, obj, (err, info) => {
-      if (err) this.emit('error', err)
-    })
+    if (this._info) obj = _.extend({}, this._info, obj)
   }
   this.encrypt = this.sendSignal.encrypt
   this.decrypt = this.sendSignal.decrypt
@@ -310,109 +245,42 @@ function Swarm (signalServer, opts) {
   }
 }
 util.inherits(Swarm, EventEmitter)
-Swarm.prototype.put = function (key, value, cb) {
-  var _value
-  if (typeof value !== 'string') _value = JSON.stringify(value)
-  else _value = value
-  var obj = {_id: key}
-  this.db.get(key, (err, orig) => {
-    if (!err) obj._rev = orig._rev
-    obj.value = value
-    obj.from = this.publicKey
-    obj.signature = this.sendSignal.sign(_value).toString('hex')
-    this.db.put(obj, cb)
-  })
-  return obj
-}
 Swarm.prototype.sign = function (value) {
   return this.sendSignal.sign(this.pemPrivateKey, value)
 }
 Swarm.prototype.call = function (pubKey, cb) {
-  if (this.waiting[pubKey]) return
   if (this.peers[pubKey]) return
 
   if (!cb) cb = noopCallback
   if (!this._ready) return this._callQueue.push([pubKey, cb])
 
-  var _opts = extend(this.opts, {initiator: true, trickle: false})
+  var _opts = extend({initiator: true, trickle: false}, this.opts)
   var peer = new SimplePeer(_opts)
   peer.publicKey = pubKey
   peer.once('signal', offer => {
+    peer.__signal = offer
     this.sendSignal(pubKey, offer)
   })
   peer.on('connect', createOnConnect(this, peer, pubKey, cb))
-  this.waiting[pubKey] = peer
+  this.peers[pubKey] = peer
 }
 Swarm.prototype.ping = function (publicKey, cb) {
   let start = Date.now()
   this.getRemote(publicKey).ping(() => {
     let delay = Date.now() - start
     this.network[publicKey] = delay
-    this.updateNetwork()
     if (cb) cb(null, delay)
   })
 }
 Swarm.prototype.getRemote = function (publicKey) {
   return this.remotes[publicKey]
 }
-Swarm.prototype.updateNetwork = function () {
-  // Network updates tend to happen in fast succession.
-  // This limits the updates to one per second so that
-  // the changes can be batched.
-  // This also means that it will always take at least
-  // one second to update the local network information.
-  this._networkChanged = true
-  if (!this._networkUpdateTimeout) {
-    this._networkUpdateTimeout = setTimeout(() => {
-      this._networkChanged = false
-      let _value = {network: this.network, relays: this.relays}
-      this.put(`network:${this.publicKey}`, _value, (err) => {
-        if (err) return console.error(err)
-        this._networkUpdateTimeout = false
-        if (this._networkChanged) this.updateNetwork()
-      })
-    }, 1000)
-  }
-}
 Swarm.prototype.activeKeys = function (cb) {
   // TODO: parse through the peers in the db as well.
-  cb(null, Object.keys(this.waiting).concat(Object.keys(this.peers)))
+  cb(null, Object.keys(this.peers))
 }
-Swarm.prototype.reroute = function (publicKey) {
-  let fastestTTL = Infinity
-  let fastestPublicKey = null
-  let _filter = doc => {
-    if (doc._id.slice(0, 'network'.length) === 'network') {
-      let pubKey = doc._id.slice('network:'.length)
-      if (pubKey === this.publicKey) return
-      if (!this.network[pubKey]) return
-      if (!doc.value.network[publicKey]) return
-      let ttl = (doc.value.network[publicKey] + this.network[pubKey] + 200)
-      if (ttl < fastestTTL) {
-        fastestTTL = ttl
-        fastestPublicKey = pubKey
-      }
-    }
-    return false
-  }
-  this.db.changes({include_docs: true, filter: _filter})
-  .then(() => {
-    if (fastestPublicKey && fastestTTL < this.maxDelay) {
-      // console.log('TODO: Relay!')
-    }
-  })
-}
-Swarm.prototype.setInfo = function (info) {
-  this._info = info
-  if (!this._ready) return
-  else {
-    let obj = _.extend(info, { nonce: crypto.randomBytes(10).toString('hex'),
-                               joined: Date.now()
-                             })
-    this.put(`peer:${this.publicKey}`, obj, (err, info) => {
-      if (err) console.error(err)
-    })
-  }
+Swarm.prototype.destroy = function () {
+  _.values(this.peers).forEach(p => p.destroy())
 }
 
 if (process.browser) {
@@ -421,18 +289,20 @@ if (process.browser) {
 module.exports = (signalServer, opts) => new Swarm(signalServer, opts)
 
 function createOnConnect (swarm, peer, pubKey, cb) {
+  function onclose () {
+    delete swarm.peers[pubKey]
+    delete swarm.remotes[pubKey]
+    swarm.emit('disconnect', pubKey, peer)
+  }
+  peer.on('error', onclose)
+  peer.once('close', onclose)
+
   function _ret () {
-    if (swarm.peers[pubKey]) {
-      // TODO: gracefull disconnect
-      return console.log('already connected')
-    }
     if (cb) cb(null, peer)
     peer.publicKey = pubKey
-    swarm.peers[pubKey] = peer
-    delete swarm.waiting[pubKey]
+    // swarm.peers[pubKey] = peer
     setupPeer(swarm, peer)
     swarm.emit('peer', peer)
   }
-  swarm.waiting[pubKey] = peer
   return _ret
 }

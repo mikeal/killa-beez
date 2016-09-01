@@ -32,6 +32,11 @@ node3.call(node1.publicKey) // connect peers 3 and 1 together
 // call each other through signal exchange.
 ```
 
+## Departures for v2
+
+* Remove pouchbd, move to pure RPC (via dnode) for relaying peers.
+* Support the a signing key along with a signature chain during instantiation.
+
 ### Principals
 
 * Each `Swarm` instance generates an ECDH public/private keypair for its node.
@@ -39,22 +44,11 @@ node3.call(node1.publicKey) // connect peers 3 and 1 together
     signals.
   * Another swarm node looks up the public key through the signaling mechanism
     to exchange initial offers.
-    * Currently this is done via a central server but ideally this would be
-      something more resilient like IPFS.
   * Once a connection is established (using `SimplePeer`) the data channel is
     multiplexed. The substeams are keyed with a `type`.
-* There are currently three types of substeams in the data channel that are
+* There are currently two types of substeams in the data channel that are
   ciphered.
-  * `db` is a pouchdb database replication stream. Once established
-    bi-directional replication is setup between each node's internal pouchdb
-    instance.
   * `dnode` is an rpc steam for communication between peers using [dnode]().
   * `relay` Used to proxy data from one peer to another when the intermediate
     peer has better connectivity. The `publicKey` used to setup a
     Cipher stream so that the relaying node cannot read the traffic.
-* In addition to storing peer information the local database is replicated
-  with every node in the network. This means that in order to join the swarm
-  **a user only needs to connect to one node in the swarm** and will then be
-  able to get signals to every other peer and share its active signal with every
-  node in the swarm.
-

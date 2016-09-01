@@ -12,9 +12,7 @@
   "license": "Apache-2.0",
   "dependencies": {
     "dnode": "^1.2.2",
-    "duplexify": "^3.4.5",
     "ec-pem": "^0.6.1",
-    "jsonstream2": "^1.1.1",
     "lodash.assign": "^4.2.0",
     "multiplex": "^6.7.0",
     "pouchdb": "^5.4.5",
@@ -23,8 +21,7 @@
     "room-exchange": "^0.3.0",
     "signal-exchange": "^0.8.0",
     "simple-peer": "^6.0.5",
-    "socket.io-client": "^1.4.8",
-    "through2": "^2.0.1"
+    "socket.io-client": "^1.4.8"
   },
   "devDependencies": {
     "beefy": "^2.1.8",
