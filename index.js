@@ -4,10 +4,17 @@ const dnode = require('dnode')
 const EventEmitter = require('events').EventEmitter
 const util = require('util')
 const SimplePeer = require('simple-peer')
-const extend = require('lodash.assign')
 const signalExchange = require('signal-exchange')
 const getRoom = require('room-exchange')
-const _ = require('lodash')
+// const = require('lodash') // Development Only
+const _ =
+ { extend: require('lodash.assignin'),
+   keys: require('lodash.keys'),
+   without: require('lodash.without'),
+   uniq: require('lodash.uniq'),
+   values: require('lodash.values')
+ }
+
 
 const noopCallback = (err) => { if (err) console.error(err) }
 
@@ -158,7 +165,7 @@ function Swarm (signalServer, opts) {
           if (pubKey === this.publicKey) throw new Error('wtf1')
           if (pubKey < this.publicKey) {
             // My key is larger, I need to be the initiator.
-            let _opts = _.extend({trickle:false}, {initiator: true}, this.opts)
+            let _opts = _.extend({}, {initiator: true}, this.opts)
             let peer = new SimplePeer(_opts)
             peer.nonce = // big ass random number, to be compared later.
             peer.on('signal', signal => {
@@ -261,7 +268,7 @@ Swarm.prototype.call = function (pubKey, cb) {
   if (!cb) cb = noopCallback
   if (!this._ready) return this._callQueue.push([pubKey, cb])
 
-  var _opts = extend({initiator: true, trickle: false}, this.opts)
+  var _opts = _.extend({initiator: true, trickle: false}, this.opts)
   var peer = new SimplePeer(_opts)
   peer.publicKey = pubKey
   peer.once('signal', offer => {
