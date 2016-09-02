@@ -1,10 +1,12 @@
-# ResilientSwarm
+# Killa Beez
+
+***We on a swarm!***
 
 ```
-npm install resilient-swarm
+npm install killa-beez
 ```
 
-`ResilientSwarm` is an efficient, secure, and reliable WebRTC swarm. The
+`Killa Beez` is an efficient, secure, and reliable WebRTC swarm. The
 goal is to not rely on any single point of failure and to resist
 hostile networks.
 
@@ -32,8 +34,9 @@ node3.call(node1.publicKey) // connect peers 3 and 1 together
 // call each other through signal exchange.
 ```
 
-## Departures for v2
+## Departures for v1
 
+* Rename from "Resilient Swarm" to "Killa Beez."
 * Remove pouchbd, move to pure RPC (via dnode) for relaying peers.
 * Support the a signing key along with a signature chain during instantiation.
 
