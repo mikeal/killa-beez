@@ -6,6 +6,11 @@
 npm install killa-beez
 ```
 
+***Experimental***: This module is still under heavy and active
+development. While each release should work features and functionality
+may be deprecated and not all the goals of the project have been
+acheived yet.
+
 `Killa Beez` is an efficient, secure, and reliable WebRTC swarm. The
 goal is to not rely on any single point of failure and to resist
 hostile networks.
