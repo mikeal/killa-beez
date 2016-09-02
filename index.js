@@ -311,6 +311,11 @@ function createOnConnect (swarm, peer, pubKey, cb) {
   }
   peer.on('error', onclose)
   peer.once('close', onclose)
+  peer.once('stream', stream => peer.__stream = stream)
+  peer.once('stream', stream => {
+    stream.peer = peer
+    swarm.emit('stream', stream)
+  })
 
   function _ret () {
     if (cb) cb(null, peer)
@@ -318,6 +323,7 @@ function createOnConnect (swarm, peer, pubKey, cb) {
     // swarm.peers[pubKey] = peer
     setupPeer(swarm, peer)
     swarm.emit('peer', peer)
+    if (peer.__stream) peer.emit('stream', peer.__stream)
   }
   return _ret
 }
