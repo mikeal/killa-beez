@@ -1,8 +1,7 @@
-const multiplex = require('multiplex')
 const crypto = require('crypto')
-const dnode = require('dnode')
 const EventEmitter = require('events').EventEmitter
 const util = require('util')
+const methodman = require('methodman')
 const SimplePeer = require('simple-peer')
 const signalExchange = require('signal-exchange')
 const getRoom = require('room-exchange')
@@ -15,7 +14,6 @@ const _ =
    values: require('lodash.values')
  }
 
-
 const noopCallback = (err) => { if (err) console.error(err) }
 
 function setupPeer (swarm, peer) {
@@ -24,52 +22,23 @@ function setupPeer (swarm, peer) {
     peer.emit.apply(peer, arguments)
   }
 
-  let plex = multiplex((stream, id) => {
-    let type
-    let toPublicKey
-    let direction
-    if (id.slice(0, 'relay:'.length) === 'relay:') {
-      [type, direction, toPublicKey] = type.split(':')
-    } else {
-      type = id
-    }
-
-    switch (type) {
-      case 'dnode':
-        let d = dnode(swarm.rpc)
-        d.pipe(stream).pipe(d)
-        break
-      case 'relay':
-        let relayid
-        if (direction === 'to') {
-          // receive and decode stream
-          // TODO: implement
-        } else {
-          // Send stream to publicKey
-          relayid = `relay:from:${peer.publicKey}`
-          let s = swarm.peer[toPublicKey].plex.createStream(relayid)
-          stream.pipe(s).pipe(stream)
-        }
-        break
-      default:
-        emit('stream', stream, id)
-    }
-  })
-
-  plex.pipe(peer).pipe(plex)
-
-  // Setup dnode
-  let dnodeStream = plex.createStream('dnode')
-  let d = dnode()
-  d.on('remote', remote => {
+  let meth = methodman(peer)
+  meth.commands(swarm.rpc, 'init')
+  meth.on('commands:init', remote => {
     remote.publicKey = peer.publicKey
     swarm.remotes[peer.publicKey] = remote
     emit('remote', remote)
   })
-  d.publicKey = peer.publicKey
-  dnodeStream.pipe(d).pipe(dnodeStream)
-
-  peer.plex = plex
+  meth.on('commands', (remote, id) => {
+    emit('commands', remote, id)
+    emit(`commands:${id}`, remote)
+  })
+  peer.createStream = (id) => meth.stream(id)
+  meth.on('stream', (stream, id) => {
+    // TODO: Relay streams.
+    emit('stream', stream, id)
+    emit(`stream:${id}`, stream)
+  })
 }
 
 // Default RPC methods
@@ -89,7 +58,7 @@ function RPC (swarm) {
       return cb(new Error('Already connecting'))
     }
     if (pubKey === swarm.publicKey) throw new Error('wtf2')
-    let _opts = _.extend({trickle:false}, {initiator: true}, swarm.opts)
+    let _opts = _.extend({trickle: false}, {initiator: true}, swarm.opts)
     let peer = new SimplePeer(_opts)
     peer.on('signal', signal => {
       signal = swarm.encrypt(pubKey, signal)
@@ -110,7 +79,7 @@ function RPC (swarm) {
     sig = swarm.decrypt(pubKey, sig)
 
     if (sig.type === 'offer' && !swarm.peers[pubKey]) {
-      let _opts = _.extend({trickle:false}, swarm.opts)
+      let _opts = _.extend({trickle: false}, swarm.opts)
       let peer = new SimplePeer(_opts)
       peer.on('signal', signal => {
         signal = swarm.encrypt(pubKey, signal)
@@ -175,7 +144,7 @@ function Swarm (signalServer, opts) {
             peer._created = Date.now()
             peer.once('connect', createOnConnect(this, peer, pubKey))
             this.peers[pubKey] = peer
-            if (err) return console.error(pubKey.slice(0,9), err)
+            if (err) return console.error(pubKey.slice(0, 9), err)
           } else {
             // Their key is larger, they need to know about me.
             remote.inform(pubKey, this.publicKey, (err) => {

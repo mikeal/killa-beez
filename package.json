@@ -1,6 +1,6 @@
 {
   "name": "killa-beez",
-  "version": "1.2.1",
+  "version": "2.0.0",
   "description": "",
   "main": "index.js",
   "scripts": {
@@ -11,13 +11,12 @@
   "author": "Mikeal Rogers <mikeal.rogers@gmail.com> (http://www.mikealrogers.com)",
   "license": "Apache-2.0",
   "dependencies": {
-    "dnode": "^1.2.2",
     "lodash.assignin": "^4.2.0",
     "lodash.keys": "^4.2.0",
     "lodash.uniq": "^4.5.0",
     "lodash.values": "^4.3.0",
     "lodash.without": "^4.4.0",
-    "multiplex": "^6.7.0",
+    "methodman": "^0.2.0",
     "room-exchange": "^0.6.0",
     "signal-exchange": "^0.8.0",
     "simple-peer": "^6.0.5"
