@@ -39,6 +39,7 @@ function setupPeer (swarm, peer) {
     emit('stream', stream, id)
     emit(`stream:${id}`, stream)
   })
+  peer.meth = meth
 }
 
 // Default RPC methods
