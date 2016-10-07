@@ -36,8 +36,8 @@ function setupPeer (swarm, peer) {
   peer.createStream = (id) => meth.stream(id)
   meth.on('stream', (stream, id) => {
     // TODO: Relay streams.
-    emit('stream', stream, id)
-    emit(`stream:${id}`, stream)
+    emit('substream', stream, id)
+    emit(`substream:${id}`, stream)
   })
   peer.meth = meth
 }
