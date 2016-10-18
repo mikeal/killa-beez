@@ -2,6 +2,9 @@ const crypto = require('crypto')
 const EventEmitter = require('events').EventEmitter
 const util = require('util')
 const methodman = require('methodman')
+const levelup = require('levelup')
+const memdown = require('memdown')
+const hyperlog = require('hyperlog')
 const SimplePeer = require('simple-peer')
 const signalExchange = require('signal-exchange')
 const getRoom = require('room-exchange')
@@ -40,6 +43,13 @@ function setupPeer (swarm, peer) {
     emit(`substream:${id}`, stream)
   })
   peer.meth = meth
+
+  // Setup hyperlog
+  let replicate = swarm.log.replicate()
+  replicate.pipe(peer.createStream('hyperlog')).pipe(replicate)
+  peer.on('substream:hyperlog', stream => {
+    stream.pipe(swarm.log.replicate()).pipe(stream)
+  })
 }
 
 // Default RPC methods
@@ -117,6 +127,8 @@ function Swarm (signalServer, opts) {
   this.peers = {}
   this.network = {}
   this.relays = {}
+  this.log = hyperlog(levelup({db: memdown}), {valueEncoding: 'json'})
+  this.feed = this.log.createReadStream({live: true, valueEncoding: 'json'})
 
   this.on('peer', (peer) => {
     this.network[peer.publicKey] = null
