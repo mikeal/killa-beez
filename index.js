@@ -45,10 +45,10 @@ function setupPeer (swarm, peer) {
   peer.meth = meth
 
   // Setup hyperlog
-  let replicate = swarm.log.replicate()
+  let replicate = swarm.log.replicate({live: true})
   replicate.pipe(peer.createStream('hyperlog')).pipe(replicate)
   peer.on('substream:hyperlog', stream => {
-    stream.pipe(swarm.log.replicate()).pipe(stream)
+    stream.pipe(swarm.log.replicate({live: true})).pipe(stream)
   })
 }
 
@@ -113,7 +113,8 @@ function Swarm (signalServer, opts) {
   // Crypto Setup
   let mykey = crypto.createECDH('secp521r1')
   mykey.generateKeys()
-  this.publicKey = mykey.getPublicKey().toString('hex')
+  let publicKeyBuffer = mykey.getPublicKey()
+  this.publicKey = publicKeyBuffer.toString('hex')
   let privateKey = mykey.getPrivateKey().toString('hex')
 
   this._privateKey = privateKey
@@ -127,7 +128,21 @@ function Swarm (signalServer, opts) {
   this.peers = {}
   this.network = {}
   this.relays = {}
-  this.log = hyperlog(levelup({db: memdown}), {valueEncoding: 'json'})
+
+  let hyperlogOptions = {
+    identity: publicKeyBuffer,
+    sign: (node, cb) => {
+      cb(null, new Buffer(this.sendSignal.sign(node.key), 'hex'))
+    },
+    verify: (node, cb) => {
+      if (!node.signature) return cb(null, false)
+      let verify = signalExchange.verify
+      cb(null, verify(node.key, node.identity, node.signature))
+    },
+    valueEncoding: 'json'
+  }
+
+  this.log = hyperlog(opts.levelup || levelup({db: memdown}), hyperlogOptions)
   this.feed = this.log.createReadStream({live: true, valueEncoding: 'json'})
 
   this.on('peer', (peer) => {
@@ -215,10 +230,6 @@ function Swarm (signalServer, opts) {
     this._callQueue.forEach(args => this.call(...args))
     this._callQueue = []
     this.emit('ready')
-    let obj = { nonce: crypto.randomBytes(10).toString('hex'),
-                joined: Date.now()
-              }
-    if (this._info) obj = _.extend({}, this._info, obj)
   }
   this.encrypt = this.sendSignal.encrypt
   this.decrypt = this.sendSignal.decrypt
@@ -293,7 +304,7 @@ function createOnConnect (swarm, peer, pubKey, cb) {
   }
   peer.on('error', onclose)
   peer.once('close', onclose)
-  peer.once('stream', stream => peer.__stream = stream)
+  peer.once('stream', stream => { peer.__stream = stream })
   peer.once('stream', stream => {
     stream.peer = peer
     swarm.emit('stream', stream)
