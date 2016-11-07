@@ -132,12 +132,16 @@ function Swarm (signalServer, opts) {
   let hyperlogOptions = {
     identity: publicKeyBuffer,
     sign: (node, cb) => {
-      cb(null, new Buffer(this.sendSignal.sign(node.key), 'hex'))
+      setAlmostImmediate(() => {
+        cb(null, new Buffer(this.sendSignal.sign(node.key), 'hex'))
+      })
     },
     verify: (node, cb) => {
       if (!node.signature) return cb(null, false)
       let verify = signalExchange.verify
-      cb(null, verify(node.key, node.identity, node.signature))
+      setAlmostImmediate(() => {
+        cb(null, verify(node.key, node.identity, node.signature))
+      })
     },
     valueEncoding: 'json'
   }
@@ -319,4 +323,17 @@ function createOnConnect (swarm, peer, pubKey, cb) {
     if (peer.__stream) peer.emit('stream', peer.__stream)
   }
   return _ret
+}
+
+const queue = []
+let timeout
+let _tick = () => {
+  if (queue.length) queue.shift()()
+  if (queue.length) timeout = setTimeout(_tick, 0)
+  else timeout = false
+}
+
+function setAlmostImmediate (cb) {
+  queue.push(cb)
+  if (!timeout) timeout = setTimeout(_tick, 0)
 }
