@@ -21,6 +21,7 @@
     "memdown": "^1.2.2",
     "methodman": "^0.2.0",
     "room-exchange": "^0.6.0",
+    "setimmediate": "^1.0.5",
     "signal-exchange": "^0.8.0",
     "simple-peer": "^6.0.5"
   },
