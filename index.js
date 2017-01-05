@@ -1,5 +1,5 @@
 /* globals setImmediate */
-require('setImmediate') // Sets global polyfill
+require('setimmediate') // Sets global polyfill
 const crypto = require('crypto')
 const EventEmitter = require('events').EventEmitter
 const util = require('util')
