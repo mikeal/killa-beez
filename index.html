@@ -2,15 +2,17 @@
 <html>
   <head>
     <meta charset="UTF-8">
-    <title>Resilient Swarm Test</title>
+    <title>Killa Beez</title>
     <script src="bundle.js"></script>
 
     <script>
       console.log("in script.")
 
-      let node1 = new Swarm('http://localhost:6688')
-      let node2 = new Swarm('http://localhost:6688')
-      let node3 = new Swarm('http://localhost:6688')
+      let opts = {signalHost: undefined}
+
+      let node1 = new Swarm(opts)
+      let node2 = new Swarm(opts)
+      let node3 = new Swarm(opts)
 
       let start = Date.now()
 
@@ -41,9 +43,9 @@
       node1.call(node2.publicKey)
       node3.call(node1.publicKey)
 
-      let node4 = new Swarm('http://localhost:6688')
-      let node5 = new Swarm('http://localhost:6688')
-      let node6 = new Swarm('http://localhost:6688')
+      let node4 = new Swarm(opts)
+      let node5 = new Swarm(opts)
+      let node6 = new Swarm(opts)
       node4.on('remote', _print(4))
       node5.on('remote', _print(5))
       node6.on('remote', _print(6))

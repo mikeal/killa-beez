@@ -4,7 +4,7 @@
   "description": "",
   "main": "index.js",
   "scripts": {
-    "start": "node ../signal-exchange/run.js & beefy index.js:bundle.js --open --index test.html",
+    "dev": "node ../signal-exchange/run.js & budo index.js:bundle.js",
     "test": "echo \"Error: no test specified\" && exit 1"
   },
   "keywords": [],
@@ -20,13 +20,12 @@
     "lodash.without": "^4.4.0",
     "memdown": "^1.2.2",
     "methodman": "^0.2.0",
-    "room-exchange": "^0.6.0",
+    "room-exchange": "^1.1.0",
     "setimmediate": "^1.0.5",
-    "signal-exchange": "^0.8.0",
+    "signal-exchange": "^2.3.0",
     "simple-peer": "^6.0.5"
   },
   "devDependencies": {
-    "beefy": "^2.1.8",
-    "watchify": "^3.7.0"
+    "budo": "^9.4.7"
   }
 }
