@@ -1,5 +1,7 @@
 # Killa Beez
 
+[![Greenkeeper badge](https://badges.greenkeeper.io/mikeal/killa-beez.svg)](https://greenkeeper.io/)
+
 ***We on a swarm!***
 
 ```
