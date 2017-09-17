@@ -20,7 +20,7 @@
     "lodash.without": "^4.4.0",
     "memdown": "^1.2.2",
     "methodman": "^0.2.0",
-    "room-exchange": "^1.1.0",
+    "room-exchange": "^1.2.0",
     "setimmediate": "^1.0.5",
     "signal-exchange": "^2.3.0",
     "simple-peer": "^6.0.5"
