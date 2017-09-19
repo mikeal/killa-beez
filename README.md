@@ -56,7 +56,7 @@ node3.call(node1.publicKey) // connect peers 3 and 1 together
     multiplexed. The substeams are keyed with a `type`.
 * There are currently two types of substeams in the data channel that are
   ciphered.
-  * `dnode` is an rpc steam for communication between peers using [dnode]().
+  * `dnode` is an rpc steam for communication between peers using [dnode](https://github.com/substack/dnode).
   * `relay` Used to proxy data from one peer to another when the intermediate
     peer has better connectivity. The `publicKey` used to setup a
     Cipher stream so that the relaying node cannot read the traffic.
